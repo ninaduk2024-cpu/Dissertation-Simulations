@@ -1,0 +1,91 @@
+# ===========================
+# Ramsey simulation w/ decoherence only
+# ===========================
+using QuantumOptics
+using PyPlot
+
+# ----- Spin-1/2 basis & Pauli operators -----
+b  = SpinBasis(1//2)
+sx = sigmax(b); sy = sigmay(b); sz = sigmaz(b)
+P0 = projector(spinup(b))
+P1 = projector(spindown(b))
+
+# ----- Unitaries: free evolution & near-resonant pulse -----
+function U_free(Δ, t)
+    H = 0.5 * Δ * sz
+    return exp(-1im * H * t)
+end
+
+function U_pulse(Δ, Ω, τp; φ=0.0)
+    H = 0.5 * (Δ*sz + Ω*(cos(φ)*sx + sin(φ)*sy))
+    return exp(-1im * H * τp)
+end
+
+# ----- Parameters -----
+Ω_Rabi_MHz = 10.0             # MHz
+Ω = 2π * Ω_Rabi_MHz           # rad/μs (if time in μs)
+τp = π/(2Ω)                   # π/2 pulse length (μs)
+T  = 0.90                     # free evolution time used in spectroscopy (μs)
+
+# Ideal Rx(θ) (on-resonance)
+function Rx(theta)
+    return exp(-1im * (theta/2) * sx)
+end
+
+# ----- Decoherence controls -----
+T2star_time  = 5.0            # μs, Ramsey dephasing time for time-domain
+T2star_spec  = 10.0           # μs, effective dephasing affecting spectroscopy contrast
+use_gaussian_envelope = true  # true: exp(-(t/T2*)^2) ; false: exp(-t/T2*)
+
+# =======================================================
+# Time-domain Ramsey (ideal π/2 pulses) with T2* envelope
+# =======================================================
+Δ_time = 1.0                  # rad/μs; set 0.0 for on-resonance time trace
+times  = range(0.0, stop=10.0, length=200)
+sig_time = zeros(length(times))
+
+ψ0 = spinup(b)
+
+for (i,t) in enumerate(times)
+    ψ1 = Rx(π/2) * ψ0
+    ψ2 = U_free(Δ_time, t) * ψ1
+    ψ3 = Rx(π/2) * ψ2
+    p0  = real(expect(P0, ψ3))
+    # Ramsey envelope around mean 0.5
+    env = use_gaussian_envelope ? exp(-(t/T2star_time)^2) : exp(-t/T2star_time)
+    sig_time[i] = 0.5 + (p0 - 0.5) * env
+end
+
+figure()
+plot(times, sig_time, lw=2)
+xlabel("Free evolution time t (μs)")
+ylabel("P(|0⟩)")
+title("Ramsey (time domain) — π/2 pulses with T₂* decay")
+grid(true)
+
+# ======================================================
+# Frequency-domain Ramsey spectroscopy (finite π/2 pulses)
+# with contrast reduction from dephasing during T
+# ======================================================
+f_det_MHz = range(-20.0, stop=20.0, length=1201)  # MHz
+P_excited = zeros(length(f_det_MHz))
+
+for (i, fMHz) in enumerate(f_det_MHz)
+    Δ = 2π * fMHz                       # rad/μs
+    U1 = U_pulse(Δ, Ω, τp; φ=0.0)
+    Uf = U_free(Δ, T)
+    U2 = U_pulse(Δ, Ω, τp; φ=0.0)
+    ψf = U2 * Uf * U1 * ψ0
+    p1  = real(expect(P1, ψf))
+    # Contrast reduction due to dephasing over free-evolution time T
+    contrast = use_gaussian_envelope ? exp(-(T/T2star_spec)^2) : exp(-T/T2star_spec)
+    P_excited[i] = 0.5 + (p1 - 0.5) * contrast
+end
+
+figure()
+plot(f_det_MHz, P_excited, lw=1.8)
+xlabel("Detuning (ω − ω₀) / 2π  (MHz)")
+ylabel("Population in |1⟩")
+title("Ramsey spectroscopy (frequency domain)\nfinite π/2 pulses with T₂*-limited contrast")
+grid(true)
+tight_layout()
