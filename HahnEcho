@@ -1,0 +1,53 @@
+# ===========================
+# Hahn Echo (π/2 – τ – π – τ – π/2)
+# Time domain only; decoherence
+# ===========================
+using QuantumOptics
+using PyPlot
+
+# ----- Spin-1/2 basis & operators -----
+b  = SpinBasis(1//2)
+sx = sigmax(b); sy = sigmay(b); sz = sigmaz(b)
+P0 = projector(spinup(b))
+
+# ----- Unitaries -----
+Rx(θ) = exp(-1im * (θ/2) * sx)
+function U_free(Δ, t)    # Δ in rad/μs, t in μs
+    H = 0.5 * Δ * sz
+    return exp(-1im * H * t)
+end
+
+# ----- Parameters -----
+Δ_free = 2π * 0.5            # quasi-static detuning during free precession (rad/μs)
+T2 = 200.0                   # μs (echo coherence time)
+stretch_k = 1.0              # 1=exp, 2=Gaussian; envelope = exp(-(2τ/T2)^k)
+
+# ----- Echo time sweep -----
+taus = range(0.0, stop=200.0, length=201)   # τ in μs; echo time is 2τ
+ψ0 = spinup(b)
+p0_echo = zeros(length(taus))
+
+for (i, τ) in enumerate(taus)
+    # π/2 – τ – π – τ – π/2 (ideal instantaneous pulses)
+    ψ = Rx(π/2) * ψ0
+    ψ = U_free(Δ_free, τ) * ψ
+    ψ = Rx(π) * ψ
+    ψ = U_free(Δ_free, τ) * ψ
+    ψ = Rx(π/2) * ψ
+
+    p_clean = real(expect(P0, ψ))
+
+    # T2 echo envelope (contrast decay around 0.5)
+    env = exp(- (2τ / T2)^stretch_k)
+    p0_echo[i] = 0.5 + (p_clean - 0.5) * env
+end
+
+# ----- Plot -----
+figure()
+plot(2 .* collect(taus), p0_echo, lw=2)
+xlabel("Echo time 2τ (μs)")
+ylabel("P(|0⟩) after echo")
+title("Hahn Echo — time domain with T₂-limited decay")
+grid(true)
+tight_layout()
+
