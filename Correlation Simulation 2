@@ -1,0 +1,112 @@
+using QuantumOptics
+using Statistics
+using Random
+using LinearAlgebra
+using Distributions
+using Plots
+
+
+Random.seed!(1234)
+
+b = SpinBasis(1//2)
+id = identityoperator(b)
+σx, σy, σz = sigmax(b), sigmay(b), sigmaz(b)
+
+σx1, σx2 = tensor(σx,id), tensor(id,σx)
+σz1, σz2 = tensor(σz,id), tensor(id,σz)
+σxσx     = tensor(σx, σx)
+
+# |+> ⊗ |+>
+ψplus = normalize(spinup(b) + spindown(b))
+ψ0    = tensor(ψplus, ψplus)
+ρ0    = dm(ψ0)
+
+γ    = 0.01               
+Γc   = 0.0                 
+tspan  = [0.0, 5.0]
+nshots = 3000
+
+
+Npos        = 10
+sigma_Bc    = 0.35         
+corr_length = 0.6           
+
+
+nx, ny = 5, 2
+@assert nx*ny == Npos
+xs_grid = collect(range(0.1, 0.9; length=nx))
+ys_grid = collect(range(0.2, 0.8; length=ny))
+
+
+coords = [(x,y) for y in ys_grid for x in xs_grid]
+xs = [c[1] for c in coords]
+ys = [c[2] for c in coords]
+
+
+Σ = zeros(Npos, Npos)
+for i in 1:Npos, j in 1:Npos
+    dx = xs[i] - xs[j]
+    dy = ys[i] - ys[j]
+    d2 = dx^2 + dy^2
+    Σ[i, j] = sigma_Bc^2 * exp(-d2/(2*corr_length^2))
+end
+mv = MvNormal(Σ)
+
+
+collapse_ops = [sqrt(γ)*σz1, sqrt(γ)*σz2]
+if Γc > 0
+    push!(collapse_ops, sqrt(Γc)*(σz1 + σz2))
+end
+
+
+px1_mean = zeros(Npos)
+px2_mean = zeros(Npos)
+Cxx_mean = zeros(Npos)
+
+
+for s in 1:nshots
+    Bc_vec = rand(mv)  
+    for i in 1:Npos
+        H = Bc_vec[i] * (σz1 + σz2)
+        _, ρt = timeevolution.master(tspan, ρ0, H, collapse_ops)
+        ρf = ρt[end]
+
+        p1  = real(expect(σx1, ρf))
+        p2  = real(expect(σx2, ρf))
+        cxx = real(expect(σxσx, ρf))
+
+        px1_mean[i] += (p1 - px1_mean[i]) / s
+        px2_mean[i] += (p2 - px2_mean[i]) / s
+        Cxx_mean[i] += (cxx - Cxx_mean[i]) / s
+    end
+end
+
+μC   = mean(Cxx_mean)
+ΔCxx = Cxx_mean .- μC
+Δmax = maximum(abs.(ΔCxx))
+Δmax = Δmax == 0 ? 1.0 : Δmax  # avoid zero range
+
+println("Mean Cxx = $μC, max |ΔCxx| = $Δmax")
+
+
+arrow_len_target = 0.15
+raw_u, raw_v = px1_mean, px2_mean
+maxlen = maximum(sqrt.(raw_u.^2 .+ raw_v.^2))
+scale  = maxlen > 0 ? arrow_len_target / maxlen : 1.0
+u = scale .* raw_u
+v = scale .* raw_v
+
+plt = plot(size=(900, 700), legend=false,
+           title="Correlational Vector Map (N=$Npos, shots=$nshots)\nΔCxx = Cxx - mean(Cxx)",
+           xlabel="x", ylabel="y", xlim=(0,1), ylim=(0,1),
+           aspect_ratio=:equal, grid=false)
+
+
+quiver!(xs, ys, quiver=(u, v), linealpha=0.95, lw=2)
+
+
+scatter!(xs, ys, ms=12, markerstrokewidth=0,
+         zcolor=ΔCxx, zlims=(-Δmax, Δmax),
+         cbar_title="ΔCxx", colorbar=true, c=:coolwarm)
+
+display(plt)
