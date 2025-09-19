@@ -1,0 +1,44 @@
+using QuantumOptics, PyPlot
+pygui(true); ion()   
+
+
+b  = NLevelBasis(2)
+s0 = nlevelstate(b, 1)                 
+s1 = nlevelstate(b, 2)                  
+σx = transition(b,1,2) + transition(b,2,1)
+σz = transition(b,1,1) - transition(b,2,2)
+
+
+bb = CompositeBasis(b, b)
+
+
+σx1, σx2 = embed(bb,1,σx), embed(bb,2,σx)
+σz1, σz2 = embed(bb,1,σz), embed(bb,2,σz)
+Σσx = σx1 + σx2
+Σσz = σz1 + σz2
+M_parity = σx1 * σx2                   
+
+
+plus   = (s0 + s1)/sqrt(2)
+ψ_prod = tensor(plus, plus)
+ψ_ghz  = (tensor(s0,s0) + tensor(s1,s1))/sqrt(2)
+
+
+H(B) = (B/2) * Σσz
+evolve(ψ, B, t) = exp(-1im * H(B) * t) * ψ
+
+signal_prod(B, t) = real(expect(Σσx,     evolve(ψ_prod, B, t)))   # ∝ cos(B t)
+signal_ghz(B, t)  = real(expect(M_parity, evolve(ψ_ghz,  B, t)))  # ∝ cos(2 B t)
+
+
+t = 5.0
+Bs = range(-2.0, 2.0, length=600)
+
+sP = [signal_prod(B, t) for B in Bs]
+sG = [signal_ghz(B,  t) for B in Bs]
+
+# --- Plot ---
+plot(Bs, sP, label="Product (Σσx)  ~ cos(B t)")
+plot(Bs, sG, label="GHZ (σx⊗σx) ~ cos(2 B t)")
+xlabel("Magnetic field B"); ylabel("Signal")
+legend(); grid(true); show()
