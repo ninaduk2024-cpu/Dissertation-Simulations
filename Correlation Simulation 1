@@ -1,0 +1,62 @@
+using QuantumOptics
+using Statistics
+using Random
+using Plots
+
+b = SpinBasis(1//2)
+id = identityoperator(b)
+σz = sigmaz(b)
+σx = sigmax(b)
+σy = sigmay(b)
+
+
+σz1 = tensor(σz, id)
+σz2 = tensor(id, σz)
+σx1 = tensor(σx, id)
+σx2 = tensor(id, σx)
+
+
+ψplus = normalize(spinup(b) + spindown(b))
+ψ0 = tensor(ψplus, ψplus)
+ρ0 = dm(ψ0)
+
+γ = 0.01                    
+tspan = [0, 5]          
+nshots = 5000              
+correlated_strength = 0.3 
+collapse_ops = [sqrt(γ)*σz1, sqrt(γ)*σz2]
+
+
+results1 = zeros(Int, nshots)
+results2 = zeros(Int, nshots)
+
+for i in 1:nshots
+    Bc = randn() * correlated_strength
+    H = Bc * (σz1 + σz2) 
+
+
+    tout, ρt = timeevolution.master(tspan, ρ0, H, collapse_ops)
+    ρf = ρt[end]
+
+
+  p1 = real(expect(σx1, ρf))
+  p2 = real(expect(σx2, ρf))
+
+    results1[i] = rand() < (1 + p1)/2 ? 1 : 0
+    results2[i] = rand() < (1 + p2)/2 ? 1 : 0
+end
+
+
+
+r = cor(results1, results2)
+println("📈 Measured Pearson correlation r = $r")
+
+
+histogram2d(results1, results2,
+    nbins=(2,2),
+    xlabel="NV1 outcome",
+    ylabel="NV2 outcome",
+    title="Joint Detection Histogram",
+    xticks=([0,1], ["0","1"]),
+    yticks=([0,1], ["0","1"]),
+    cbar_title="Counts")
