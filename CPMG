@@ -1,0 +1,55 @@
+# ===========================
+# CPMG (π/2 – [τ–π–τ]×N – (−π/2))
+# Time-domain; decoherence only
+# ===========================
+using QuantumOptics
+using PyPlot
+
+# Spin-1/2 basis & ops
+b  = SpinBasis(1//2)
+sx = sigmax(b); sy = sigmay(b); sz = sigmaz(b)
+P0 = projector(spinup(b))
+
+# Unitaries
+Rx(θ) = exp(-1im * (θ/2) * sx)
+function U_free(Δ, t)
+    H = 0.5 * Δ * sz
+    exp(-1im * H * t)
+end
+
+# Parameters
+Δ = 2π * 0.0           # detuning (rad/μs)
+Nπ = 4                 # number of π pulses
+T2 = 800.0             # echo-limited coherence time (μs)
+stretch_k = 1.0        # 1=exp, 2=Gaussian
+
+# Sweep τ (total evolution time = 2*Nπ*τ)
+taus = range(0.0, stop=400.0, length=201)
+ψ0 = spinup(b)
+p0_cpmg = zeros(length(taus))
+
+for (i, τ) in enumerate(taus)
+    ψ = Rx(π/2) * ψ0           # prepare superposition
+
+    # Nπ echo blocks: (τ – π – τ)
+    for _ in 1:Nπ
+        ψ = U_free(Δ, τ) * ψ
+        ψ = Rx(π) * ψ
+        ψ = U_free(Δ, τ) * ψ
+    end
+
+    ψ = Rx(-π/2) * ψ           # readout with −π/2 to map echo → |0⟩
+    p_clean = real(expect(P0, ψ))
+
+    # CPMG envelope (decays with total free-precession time 2*Nπ*τ)
+    env = exp(- (2Nπ*τ / T2)^stretch_k )
+    p0_cpmg[i] = 0.5 + (p_clean - 0.5) * env
+end
+
+figure()
+plot(2Nπ .* collect(taus), p0_cpmg, lw=2)
+xlabel("Total evolution time 2Nτ (μs)")
+ylabel("P(|0⟩) after CPMG")
+title("CPMG time domain — echo starts high and decays (T₂-limited)")
+grid(true)
+tight_layout()
